@@ -1,8 +1,8 @@
-arp_poison: arp_poison.o
-	gcc -o arp_poison arp_poison.o -lpcap
+arp_spoof: arp_spoof.o
+	gcc -o arp_spoof arp_spoof.o -lpcap
 
-arp_poison.o: arp_poison.c
-	gcc -o arp_poison.o -c arp_poison.c
+arp_spoof.o: arp_spoof.c
+	gcc -o arp_spoof.o -c arp_spoof.c
 
 clean:
 	rm -f ./*.o 
